@@ -14,18 +14,41 @@ anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
 serper_key = st.secrets["keys"]["SERPER_API_KEY"]
 
 cities = {
-    "Egypt": sorted(["All Egypt", "Alexandria", "Assiut", "Aswan", "Asyut", "Beni Suef", "Cairo", "Damietta", "Fayoum", "Giza", "Hurghada", "Ismailia", "Kafr El Sheikh", "Luxor", "Mansoura", "Minya", "Port Said", "Qena", "Sharm El Sheikh", "Sohag", "Suez", "Tanta", "Zagazig"]),
-    "Saudi Arabia": sorted(["All KSA", "Abha", "Al Khobar", "Dammam", "Jeddah", "Jubail", "Mecca", "Medina", "Riyadh", "Tabuk", "Taif"]),
-    "UAE": sorted(["All UAE", "Abu Dhabi", "Ajman", "Al Ain", "Dubai", "Fujairah", "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"]),
-    "Qatar": sorted(["All Qatar", "Al Rayyan", "Al Wakrah", "Doha", "Lusail"]),
-    "Oman": sorted(["All Oman", "Muscat", "Nizwa", "Salalah", "Sohar"]),
-    "Kuwait": sorted(["All Kuwait", "Ahmadi", "Hawalli", "Kuwait City", "Salmiya"]),
-    "Bahrain": sorted(["All Bahrain", "Manama", "Muharraq", "Riffa"])
+    "Bahrain": sorted(["All Bahrain", "Manama", "Muharraq", "Riffa", "Hamad Town", "Isa Town"]),
+    "Egypt": sorted(["All Egypt", "Alexandria", "Assiut", "Aswan", "Beheira", "Beni Suef", "Cairo", "Dakahlia", "Damietta", "Fayoum", "Gharbia", "Giza", "Hurghada", "Ismailia", "Kafr El Sheikh", "Luxor", "Mansoura", "Matrouh", "Minya", "North Sinai", "Port Said", "Qena", "Red Sea", "Sharqia", "Sharm El Sheikh", "Sohag", "South Sinai", "Suez", "Tanta", "Zagazig"]),
+    "Kuwait": sorted(["All Kuwait", "Ahmadi", "Hawalli", "Kuwait City", "Salmiya", "Farwaniya"]),
+    "Oman": sorted(["All Oman", "Muscat", "Nizwa", "Salalah", "Sohar", "Sur"]),
+    "Qatar": sorted(["All Qatar", "Al Rayyan", "Al Wakrah", "Doha", "Lusail", "Al Khor"]),
+    "Saudi Arabia": sorted(["All KSA", "Abha", "Al Khobar", "Dammam", "Jeddah", "Jubail", "Mecca", "Medina", "Riyadh", "Tabuk", "Taif", "Yanbu"]),
+    "UAE": sorted(["All UAE", "Abu Dhabi", "Ajman", "Al Ain", "Dubai", "Fujairah", "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"])
 }
+
+# Auto-detect user country
+def get_user_country():
+    try:
+        response = requests.get("https://ipapi.co/json/", timeout=3)
+        data = response.json()
+        detected = data.get("country_name", "Egypt")
+        country_map = {
+            "Egypt": "Egypt",
+            "Saudi Arabia": "Saudi Arabia",
+            "United Arab Emirates": "UAE",
+            "Qatar": "Qatar",
+            "Oman": "Oman",
+            "Kuwait": "Kuwait",
+            "Bahrain": "Bahrain"
+        }
+        return country_map.get(detected, "Egypt")
+    except:
+        return "Egypt"
+
+default_country = get_user_country()
+country_list = sorted(list(cities.keys()))
+default_index = country_list.index(default_country) if default_country in country_list else 0
 
 with st.sidebar:
     st.header("🎯 Search Criteria")
-    country = st.selectbox("Target Country", sorted(list(cities.keys())))
+    country = st.selectbox("Target Country", country_list, index=default_index)
     city_list = cities[country]
     city = st.selectbox("Target City", city_list)
     num_leads = st.number_input("Number of Leads", min_value=3, max_value=100, value=10)
@@ -71,7 +94,7 @@ if search_button:
             all_results += "\nSearch: " + query + "\nResults:\n" + results + "\n"
 
     with st.spinner("Analyzing and qualifying leads..."):
-        prompt = "You are a business development researcher for Purpleguard, a cybersecurity company offering Managed Cybersecurity Services, Active and Passive solutions, and vendor partnerships with SonicWall, Barracuda, CrowdStrike, Cisco. We need PARTNERS in " + location + " who can resell our services. Ideal partner: IT System Integrators, MSPs, IT Resellers, medium size 20-200 employees. Based on these search results:\n" + all_results + "\nExtract " + str(num_leads) + " potential partners and return ONLY a Python list of lists:\n[[\"Company Name\", \"Country\", \"City\", \"What They Do\", \"Cybersecurity Practice Yes/No/Partial\", \"Managed Services Strong/Weak/None\", \"Known Vendors\", \"Has Sales Team Yes/No\", \"Client Base\", \"Website\", \"Fit Score High/Medium/Low\"]]\nReturn ONLY the raw list no markdown no explanation."
+        prompt = "You are a strict business development researcher for Purpleguard, a cybersecurity company. We need PARTNERS specifically located in " + location + " only. Do NOT include companies from other cities or countries. If there are not enough companies found, return only what is available. We need IT System Integrators, MSPs, IT Resellers, medium size 20-200 employees, who can resell Managed Cybersecurity Services and solutions from SonicWall, Barracuda, CrowdStrike, Cisco. Based on these search results:\n" + all_results + "\nExtract up to " + str(num_leads) + " potential partners STRICTLY located in " + location + " and return ONLY a Python list of lists:\n[[\"Company Name\", \"Country\", \"City\", \"What They Do\", \"Cybersecurity Practice Yes/No/Partial\", \"Managed Services Strong/Weak/None\", \"Known Vendors\", \"Has Sales Team Yes/No\", \"Client Base\", \"Website\", \"Fit Score High/Medium/Low\"]]\nReturn ONLY the raw list no markdown no explanation. If no companies found return empty list []."
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -85,26 +108,29 @@ if search_button:
             st.error("Error parsing results: " + str(e))
             st.stop()
 
-    st.success("Found " + str(len(leads)) + " potential partners in " + location + "!")
+    if len(leads) == 0:
+        st.warning("No partners found specifically in " + location + ". Try searching a broader area or different city.")
+    else:
+        st.success("Found " + str(len(leads)) + " potential partners in " + location + "!")
 
-    headers = ["Company Name", "Country", "City", "What They Do", "Cybersecurity Practice", "Managed Services", "Known Vendors", "Has Sales Team", "Client Base", "Website", "Fit Score"]
-    df = pd.DataFrame(leads, columns=headers)
-    st.dataframe(df, use_container_width=True, height=600)
+        headers = ["Company Name", "Country", "City", "What They Do", "Cybersecurity Practice", "Managed Services", "Known Vendors", "Has Sales Team", "Client Base", "Website", "Fit Score"]
+        df = pd.DataFrame(leads, columns=headers)
+        st.dataframe(df, use_container_width=True, height=600)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Leads"
-    for col, header in enumerate(headers, 1):
-        ws.cell(row=1, column=col, value=header)
-    today = datetime.now().strftime("%Y-%m-%d")
-    for row, lead in enumerate(leads, 2):
-        for col, value in enumerate(lead, 1):
-            ws.cell(row=row, column=col, value=value)
-        ws.cell(row=row, column=12, value=today)
-    wb.save("purpleguard_leads.xlsx")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Leads"
+        for col, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col, value=header)
+        today = datetime.now().strftime("%Y-%m-%d")
+        for row, lead in enumerate(leads, 2):
+            for col, value in enumerate(lead, 1):
+                ws.cell(row=row, column=col, value=value)
+            ws.cell(row=row, column=12, value=today)
+        wb.save("purpleguard_leads.xlsx")
 
-    with open("purpleguard_leads.xlsx", "rb") as f:
-        st.download_button("📥 Download Excel", f, "purpleguard_leads.xlsx", use_container_width=True)
+        with open("purpleguard_leads.xlsx", "rb") as f:
+            st.download_button("📥 Download Excel", f, "purpleguard_leads.xlsx", use_container_width=True)
 
 else:
     st.info("👈 Select your target country and city, then click Find Partners!")
