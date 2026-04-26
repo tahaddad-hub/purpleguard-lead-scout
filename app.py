@@ -63,7 +63,13 @@ if search_button:
 
         raw = response.content[0].text.strip()
         raw = re.sub(r"```[a-z]*", "", raw).replace("```", "").strip()
-        leads = ast.literal_eval(raw)
+        raw = re.sub(r'[^\x00-\x7F]+', '', raw)
+try:
+    leads = ast.literal_eval(raw)
+except:
+    raw = re.sub(r",\s*]", "]", raw)
+    raw = re.sub(r",\s*}", "}", raw)
+    leads = ast.literal_eval(raw)
 
     st.success("Found " + str(len(leads)) + " potential partners in " + country + "!")
 
