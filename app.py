@@ -13,12 +13,25 @@ st.title("🛡️ Purpleguard Partner Search Engine")
 anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
 serper_key = st.secrets["keys"]["SERPER_API_KEY"]
 
+cities = {
+    "Egypt": ["All Egypt", "Cairo", "Alexandria", "Giza", "Mansoura", "Tanta", "Assiut"],
+    "Saudi Arabia": ["All KSA", "Riyadh", "Jeddah", "Dammam", "Khobar", "Mecca", "Medina", "Jubail"],
+    "UAE": ["All UAE", "Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah", "Fujairah"],
+    "Qatar": ["All Qatar", "Doha", "Al Rayyan"],
+    "Oman": ["All Oman", "Muscat", "Salalah"],
+    "Kuwait": ["All Kuwait", "Kuwait City"],
+    "Bahrain": ["All Bahrain", "Manama"]
+}
+
 with st.sidebar:
     st.header("🎯 Search Criteria")
-    country = st.selectbox("Target Country", ["Egypt", "Saudi Arabia", "UAE", "Qatar", "Oman", "Kuwait", "Bahrain"])
+    country = st.selectbox("Target Country", list(cities.keys()))
+    city = st.selectbox("Target City", cities[country])
     num_leads = st.number_input("Number of Leads", min_value=3, max_value=100, value=10)
     st.divider()
     search_button = st.button("🔍 Find Partners", type="primary", use_container_width=True)
+
+location = city if not city.startswith("All") else country
 
 def search_web(query):
     url = "https://google.serper.dev/search"
@@ -44,12 +57,12 @@ def clean_and_parse(raw):
 if search_button:
     client = anthropic.Anthropic(api_key=anthropic_key)
 
-    with st.spinner("Searching the web for potential partners..."):
+    with st.spinner("Searching the web for potential partners in " + location + "..."):
         queries = [
-            "IT system integrators cybersecurity " + country + " 2024",
-            "managed service providers MSP " + country + " cybersecurity",
-            "cybersecurity resellers partners " + country + " Cisco SonicWall",
-            "IT solutions companies " + country + " network security"
+            "IT system integrators cybersecurity " + location + " 2024",
+            "managed service providers MSP " + location + " cybersecurity",
+            "cybersecurity resellers partners " + location + " Cisco SonicWall",
+            "IT solutions companies " + location + " network security"
         ]
         all_results = ""
         for query in queries:
@@ -57,7 +70,7 @@ if search_button:
             all_results += "\nSearch: " + query + "\nResults:\n" + results + "\n"
 
     with st.spinner("Analyzing and qualifying leads..."):
-        prompt = "You are a business development researcher for Purpleguard, a cybersecurity company offering Managed Cybersecurity Services, Active and Passive solutions, and vendor partnerships with SonicWall, Barracuda, CrowdStrike, Cisco. We need PARTNERS in " + country + " who can resell our services. Ideal partner: IT System Integrators, MSPs, IT Resellers, medium size 20-200 employees. Based on these search results:\n" + all_results + "\nExtract " + str(num_leads) + " potential partners and return ONLY a Python list of lists:\n[[\"Company Name\", \"Country\", \"What They Do\", \"Cybersecurity Practice Yes/No/Partial\", \"Managed Services Strong/Weak/None\", \"Known Vendors\", \"Has Sales Team Yes/No\", \"Client Base\", \"Website\", \"Fit Score High/Medium/Low\"]]\nReturn ONLY the raw list no markdown no explanation."
+        prompt = "You are a business development researcher for Purpleguard, a cybersecurity company offering Managed Cybersecurity Services, Active and Passive solutions, and vendor partnerships with SonicWall, Barracuda, CrowdStrike, Cisco. We need PARTNERS in " + location + " who can resell our services. Ideal partner: IT System Integrators, MSPs, IT Resellers, medium size 20-200 employees. Based on these search results:\n" + all_results + "\nExtract " + str(num_leads) + " potential partners and return ONLY a Python list of lists:\n[[\"Company Name\", \"Country\", \"City\", \"What They Do\", \"Cybersecurity Practice Yes/No/Partial\", \"Managed Services Strong/Weak/None\", \"Known Vendors\", \"Has Sales Team Yes/No\", \"Client Base\", \"Website\", \"Fit Score High/Medium/Low\"]]\nReturn ONLY the raw list no markdown no explanation."
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -71,9 +84,9 @@ if search_button:
             st.error("Error parsing results: " + str(e))
             st.stop()
 
-    st.success("Found " + str(len(leads)) + " potential partners in " + country + "!")
+    st.success("Found " + str(len(leads)) + " potential partners in " + location + "!")
 
-    headers = ["Company Name", "Country", "What They Do", "Cybersecurity Practice", "Managed Services", "Known Vendors", "Has Sales Team", "Client Base", "Website", "Fit Score"]
+    headers = ["Company Name", "Country", "City", "What They Do", "Cybersecurity Practice", "Managed Services", "Known Vendors", "Has Sales Team", "Client Base", "Website", "Fit Score"]
     df = pd.DataFrame(leads, columns=headers)
     st.dataframe(df, use_container_width=True)
 
@@ -86,11 +99,11 @@ if search_button:
     for row, lead in enumerate(leads, 2):
         for col, value in enumerate(lead, 1):
             ws.cell(row=row, column=col, value=value)
-        ws.cell(row=row, column=11, value=today)
+        ws.cell(row=row, column=12, value=today)
     wb.save("purpleguard_leads.xlsx")
 
     with open("purpleguard_leads.xlsx", "rb") as f:
         st.download_button("📥 Download Excel", f, "purpleguard_leads.xlsx", use_container_width=True)
 
 else:
-    st.info("👈 Select your target country and click Find Partners!")
+    st.info("👈 Select your target country and city, then click Find Partners!")
