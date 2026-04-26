@@ -14,19 +14,20 @@ anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
 serper_key = st.secrets["keys"]["SERPER_API_KEY"]
 
 cities = {
-    "Egypt": ["All Egypt", "Cairo", "Alexandria", "Giza", "Mansoura", "Tanta", "Assiut"],
-    "Saudi Arabia": ["All KSA", "Riyadh", "Jeddah", "Dammam", "Khobar", "Mecca", "Medina", "Jubail"],
-    "UAE": ["All UAE", "Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah", "Fujairah"],
-    "Qatar": ["All Qatar", "Doha", "Al Rayyan"],
-    "Oman": ["All Oman", "Muscat", "Salalah"],
-    "Kuwait": ["All Kuwait", "Kuwait City"],
-    "Bahrain": ["All Bahrain", "Manama"]
+    "Egypt": sorted(["All Egypt", "Alexandria", "Assiut", "Aswan", "Asyut", "Beni Suef", "Cairo", "Damietta", "Fayoum", "Giza", "Hurghada", "Ismailia", "Kafr El Sheikh", "Luxor", "Mansoura", "Minya", "Port Said", "Qena", "Sharm El Sheikh", "Sohag", "Suez", "Tanta", "Zagazig"]),
+    "Saudi Arabia": sorted(["All KSA", "Abha", "Al Khobar", "Dammam", "Jeddah", "Jubail", "Mecca", "Medina", "Riyadh", "Tabuk", "Taif"]),
+    "UAE": sorted(["All UAE", "Abu Dhabi", "Ajman", "Al Ain", "Dubai", "Fujairah", "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"]),
+    "Qatar": sorted(["All Qatar", "Al Rayyan", "Al Wakrah", "Doha", "Lusail"]),
+    "Oman": sorted(["All Oman", "Muscat", "Nizwa", "Salalah", "Sohar"]),
+    "Kuwait": sorted(["All Kuwait", "Ahmadi", "Hawalli", "Kuwait City", "Salmiya"]),
+    "Bahrain": sorted(["All Bahrain", "Manama", "Muharraq", "Riffa"])
 }
 
 with st.sidebar:
     st.header("🎯 Search Criteria")
-    country = st.selectbox("Target Country", list(cities.keys()))
-    city = st.selectbox("Target City", cities[country])
+    country = st.selectbox("Target Country", sorted(list(cities.keys())))
+    city_list = cities[country]
+    city = st.selectbox("Target City", city_list)
     num_leads = st.number_input("Number of Leads", min_value=3, max_value=100, value=10)
     st.divider()
     search_button = st.button("🔍 Find Partners", type="primary", use_container_width=True)
@@ -88,7 +89,7 @@ if search_button:
 
     headers = ["Company Name", "Country", "City", "What They Do", "Cybersecurity Practice", "Managed Services", "Known Vendors", "Has Sales Team", "Client Base", "Website", "Fit Score"]
     df = pd.DataFrame(leads, columns=headers)
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, use_container_width=True, height=600)
 
     wb = openpyxl.Workbook()
     ws = wb.active
