@@ -32,7 +32,7 @@ with st.sidebar:
     st.divider()
     search_button = st.button("🔍 Find Partners", type="primary", use_container_width=True)
 
-location = city if not city.startswith("All") else country
+location = city + ", " + country if not city.startswith("All") else country
 
 def search_web(query):
     url = "https://google.serper.dev/search"
