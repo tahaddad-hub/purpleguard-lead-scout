@@ -7,12 +7,9 @@ import re
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Purpleguard Lead Scout", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Purpleguard Partner Search Engine", page_icon="🛡️", layout="wide")
+st.title("🛡️ Purpleguard Partner Search Engine")
 
-st.title("🛡️ Purpleguard Lead Scout")
-st.subheader("Find Cybersecurity Partners Across the Middle East")
-
-# Load API keys from secrets
 anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
 serper_key = st.secrets["keys"]["SERPER_API_KEY"]
 
@@ -23,7 +20,7 @@ with st.sidebar:
     st.divider()
     search_button = st.button("🔍 Find Partners", type="primary", use_container_width=True)
 
-def search_web(query, serper_key):
+def search_web(query):
     url = "https://google.serper.dev/search"
     headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
     payload = {"q": query, "num": 5}
@@ -37,6 +34,13 @@ def search_web(query, serper_key):
             snippets.append("- " + r.get("title", "") + ": " + r.get("snippet", "") + " | URL: " + r.get("link", ""))
     return "\n".join(snippets)
 
+def clean_and_parse(raw):
+    raw = re.sub(r"```[a-z]*", "", raw).replace("```", "").strip()
+    raw = raw.encode("ascii", "ignore").decode("ascii")
+    raw = re.sub(r",\s*\]", "]", raw)
+    raw = re.sub(r",\s*\}", "}", raw)
+    return ast.literal_eval(raw)
+
 if search_button:
     client = anthropic.Anthropic(api_key=anthropic_key)
 
@@ -49,7 +53,7 @@ if search_button:
         ]
         all_results = ""
         for query in queries:
-            results = search_web(query, serper_key)
+            results = search_web(query)
             all_results += "\nSearch: " + query + "\nResults:\n" + results + "\n"
 
     with st.spinner("Analyzing and qualifying leads..."):
@@ -61,15 +65,11 @@ if search_button:
             messages=[{"role": "user", "content": prompt}]
         )
 
-        raw = response.content[0].text.strip()
-        raw = re.sub(r"```[a-z]*", "", raw).replace("```", "").strip()
-        raw = re.sub(r'[^\x00-\x7F]+', '', raw)
         try:
-            leads = ast.literal_eval(raw)
-        except:
-            raw = re.sub(r",\s*]", "]", raw)
-            raw = re.sub(r",\s*}", "}", raw)
-            leads = ast.literal_eval(raw)
+            leads = clean_and_parse(response.content[0].text)
+        except Exception as e:
+            st.error("Error parsing results: " + str(e))
+            st.stop()
 
     st.success("Found " + str(len(leads)) + " potential partners in " + country + "!")
 
@@ -91,5 +91,6 @@ if search_button:
 
     with open("purpleguard_leads.xlsx", "rb") as f:
         st.download_button("📥 Download Excel", f, "purpleguard_leads.xlsx", use_container_width=True)
+
 else:
     st.info("👈 Select your target country and click Find Partners!")
