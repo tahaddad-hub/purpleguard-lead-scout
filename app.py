@@ -71,7 +71,9 @@ def show_login():
                     st.error("Invalid email or password.")
 
             except Exception as e:
-                st.error("Login failed: " + str(e))
+                except Exception as e:
+                        supabase_url = st.secrets["keys"]["SUPABASE_URL"]
+                        st.error("Login failed: " + str(e) + " | URL being used: " + supabase_url)
 # ─────────────────────────────────────────────
 # LOGOUT
 # ─────────────────────────────────────────────
