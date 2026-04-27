@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# SESSION STATE — Keep user logged in
+# SESSION STATE
 # ─────────────────────────────────────────────
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -46,15 +46,12 @@ def show_login():
 
             try:
                 supabase = get_supabase_client()
-
-                # Authenticate with Supabase Auth
                 response = supabase.auth.sign_in_with_password({
                     "email": email,
                     "password": password
                 })
 
                 if response.user:
-                    # Get user profile from users table
                     profile = supabase.table("users")\
                         .select("*")\
                         .eq("id", response.user.id)\
@@ -71,9 +68,9 @@ def show_login():
                     st.error("Invalid email or password.")
 
             except Exception as e:
-                except Exception as e:
-                        supabase_url = st.secrets["keys"]["SUPABASE_URL"]
-                        st.error("Login failed: " + str(e) + " | URL being used: " + supabase_url)
+                supabase_url = st.secrets["keys"]["SUPABASE_URL"]
+                st.error("Login failed: " + str(e) + " | URL: " + supabase_url)
+
 # ─────────────────────────────────────────────
 # LOGOUT
 # ─────────────────────────────────────────────
@@ -95,19 +92,16 @@ def load_cities():
     try:
         supabase = get_supabase_client()
 
-        # Load countries
         countries_response = supabase.table("countries")\
             .select("id, name")\
             .order("name")\
             .execute()
 
-        # Load cities
         cities_response = supabase.table("cities")\
             .select("name, country_id")\
             .order("name")\
             .execute()
 
-        # Build dictionary: { country_name: [cities] }
         country_map = {c["id"]: c["name"] for c in countries_response.data}
         cities_dict = {}
 
@@ -118,7 +112,6 @@ def load_cities():
                     cities_dict[country_name] = []
                 cities_dict[country_name].append(city["name"])
 
-        # Add "All [Country]" as first option for each country
         for country in cities_dict:
             cities_dict[country] = ["All " + country] + sorted(cities_dict[country])
 
@@ -181,14 +174,12 @@ def clean_and_parse(raw):
     return ast.literal_eval(raw)
 
 # ─────────────────────────────────────────────
-# MAIN APP — Only shown after login
+# MAIN APP
 # ─────────────────────────────────────────────
 def show_app():
-    # Read secrets
     anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
     serper_key = st.secrets["keys"]["SERPER_API_KEY"]
 
-    # Header with user info and logout
     col1, col2 = st.columns([4, 1])
     with col1:
         st.title("🛡️ Sales Growth Radar")
@@ -200,19 +191,16 @@ def show_app():
 
     st.divider()
 
-    # Load cities from database
     cities = load_cities()
 
     if not cities:
         st.error("Could not load configuration from database. Please try again.")
         return
 
-    # Auto-detect country
     default_country = get_user_country()
     country_list = sorted(list(cities.keys()))
     default_index = country_list.index(default_country) if default_country in country_list else 0
 
-    # Sidebar search criteria
     with st.sidebar:
         st.header("🎯 Search Criteria")
         country = st.selectbox("Target Country", country_list, index=default_index)
@@ -224,7 +212,6 @@ def show_app():
 
     location = city + ", " + country if not city.startswith("All") else country
 
-    # Search logic
     if search_button:
         client = anthropic.Anthropic(api_key=anthropic_key)
 
@@ -307,7 +294,7 @@ def show_app():
         st.info("👈 Select your target country and city, then click Find Partners!")
 
 # ─────────────────────────────────────────────
-# ROUTER — Login or App
+# ROUTER
 # ─────────────────────────────────────────────
 if st.session_state.user is None:
     show_login()
