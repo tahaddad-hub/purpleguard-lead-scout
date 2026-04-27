@@ -36,7 +36,8 @@ def show_login():
         st.divider()
 
         email = st.text_input("Email", placeholder="your@email.com")
-        password = st.text_input("Password", type="password", placeholder="••••••••")
+        password = st.text_input("Password", type="password", placeholder="••••••••", 
+                          autocomplete="current-password")
         login_button = st.button("Sign In", type="primary", use_container_width=True)
 
         if login_button:
