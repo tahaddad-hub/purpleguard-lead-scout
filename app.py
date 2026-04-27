@@ -68,8 +68,7 @@ def show_login():
                     st.error("Invalid email or password.")
 
             except Exception as e:
-                supabase_url = st.secrets["keys"]["SUPABASE_URL"]
-                st.error("Login failed: " + str(e) + " | URL: " + supabase_url)
+                st.error("Login failed. Please check your credentials.")
 
 # ─────────────────────────────────────────────
 # LOGOUT
@@ -122,25 +121,32 @@ def load_cities():
         return {}
 
 # ─────────────────────────────────────────────
-# AUTO-DETECT USER COUNTRY
+# AUTO-DETECT USER COUNTRY — No hardcoding
+# Matches IP detection result against database
 # ─────────────────────────────────────────────
-def get_user_country():
+def get_user_country(available_countries):
     try:
         response = requests.get("https://ipapi.co/json/", timeout=3)
         data = response.json()
-        detected = data.get("country_name", "Egypt")
-        country_map = {
-            "Egypt": "Egypt",
-            "Saudi Arabia": "Saudi Arabia",
-            "United Arab Emirates": "UAE",
-            "Qatar": "Qatar",
-            "Oman": "Oman",
-            "Kuwait": "Kuwait",
-            "Bahrain": "Bahrain"
-        }
-        return country_map.get(detected, "Egypt")
+
+        # ipapi.co returns full country name in English
+        detected = data.get("country_name", "")
+
+        # Match directly against what's in the database
+        if detected in available_countries:
+            return detected
+
+        # UAE is stored as "United Arab Emirates" in ipapi 
+        # but may differ in our database — handle gracefully
+        for country in available_countries:
+            if detected.lower() in country.lower() or country.lower() in detected.lower():
+                return country
+
+        # Default to Egypt if no match found
+        return "Egypt" if "Egypt" in available_countries else available_countries[0]
+
     except:
-        return "Egypt"
+        return "Egypt" if "Egypt" in available_countries else available_countries[0]
 
 # ─────────────────────────────────────────────
 # WEB SEARCH
@@ -197,8 +203,9 @@ def show_app():
         st.error("Could not load configuration from database. Please try again.")
         return
 
-    default_country = get_user_country()
+    # Pass available countries to auto-detect — no hardcoding
     country_list = sorted(list(cities.keys()))
+    default_country = get_user_country(country_list)
     default_index = country_list.index(default_country) if default_country in country_list else 0
 
     with st.sidebar:
