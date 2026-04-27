@@ -71,8 +71,7 @@ def show_login():
                     st.error("Invalid email or password.")
 
             except Exception as e:
-                st.error("Login failed. Please check your credentials.")
-
+                st.error("Login failed: " + str(e))
 # ─────────────────────────────────────────────
 # LOGOUT
 # ─────────────────────────────────────────────
