@@ -34,31 +34,27 @@ def show_login():
         st.markdown("## 🛡️ Sales Growth Radar")
         st.markdown("#### Please sign in to continue")
         st.divider()
-
         email = st.text_input("Email", placeholder="your@email.com")
-        password = st.text_input("Password", type="password", placeholder="••••••••", 
-                          autocomplete="current-password")
+        password = st.text_input("Password", type="password", placeholder="••••••••",
+                                 autocomplete="current-password")
         login_button = st.button("Sign In", type="primary", use_container_width=True)
 
         if login_button:
             if not email or not password:
                 st.error("Please enter your email and password.")
                 return
-
             try:
                 supabase = get_supabase_client()
                 response = supabase.auth.sign_in_with_password({
                     "email": email,
                     "password": password
                 })
-
                 if response.user:
                     profile = supabase.table("users")\
                         .select("*")\
                         .eq("id", response.user.id)\
                         .single()\
                         .execute()
-
                     if profile.data:
                         st.session_state.user = response.user
                         st.session_state.user_profile = profile.data
@@ -67,7 +63,6 @@ def show_login():
                         st.error("User profile not found. Please contact your administrator.")
                 else:
                     st.error("Invalid email or password.")
-
             except Exception as e:
                 st.error("Login failed. Please check your credentials.")
 
@@ -85,20 +80,22 @@ def logout():
     st.rerun()
 
 # ─────────────────────────────────────────────
-# LOAD CITIES FROM SUPABASE
+# LOAD COUNTRIES AND CITIES FROM SUPABASE
 # ─────────────────────────────────────────────
 @st.cache_data(ttl=3600)
-def load_cities():
+def load_countries_and_cities():
     try:
         supabase = get_supabase_client()
 
         countries_response = supabase.table("countries")\
             .select("id, name")\
+            .eq("is_active", True)\
             .order("name")\
             .execute()
 
         cities_response = supabase.table("cities")\
             .select("name, country_id")\
+            .eq("is_active", True)\
             .order("name")\
             .execute()
 
@@ -112,42 +109,71 @@ def load_cities():
                     cities_dict[country_name] = []
                 cities_dict[country_name].append(city["name"])
 
+        # Cities within each country sorted alphabetically
         for country in cities_dict:
-            cities_dict[country] = ["All " + country] + sorted(cities_dict[country])
+            cities_dict[country] = sorted(cities_dict[country])
 
         return cities_dict
 
     except Exception as e:
-        st.error("Could not load cities from database: " + str(e))
+        st.error("Could not load countries from database: " + str(e))
         return {}
 
 # ─────────────────────────────────────────────
-# AUTO-DETECT USER COUNTRY — No hardcoding
-# Matches IP detection result against database
+# LOAD INDUSTRIES FROM SUPABASE
 # ─────────────────────────────────────────────
-def get_user_country(available_countries):
+@st.cache_data(ttl=3600)
+def load_industries():
+    try:
+        supabase = get_supabase_client()
+        response = supabase.table("industries")\
+            .select("id, name")\
+            .order("name")\
+            .execute()
+        return [i["name"] for i in response.data]
+    except Exception as e:
+        return []
+
+# ─────────────────────────────────────────────
+# LOAD VERTICALS FROM SUPABASE
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def load_verticals():
+    try:
+        supabase = get_supabase_client()
+        response = supabase.table("verticals")\
+            .select("id, name")\
+            .order("name")\
+            .execute()
+        return [v["name"] for v in response.data]
+    except Exception as e:
+        return []
+
+# ─────────────────────────────────────────────
+# AUTO-DETECT USER COUNTRY
+# ─────────────────────────────────────────────
+def detect_user_country(available_countries):
     try:
         response = requests.get("https://ipapi.co/json/", timeout=3)
         data = response.json()
-
-        # ipapi.co returns full country name in English
         detected = data.get("country_name", "")
-
-        # Match directly against what's in the database
         if detected in available_countries:
             return detected
-
-        # UAE is stored as "United Arab Emirates" in ipapi 
-        # but may differ in our database — handle gracefully
         for country in available_countries:
             if detected.lower() in country.lower() or country.lower() in detected.lower():
                 return country
-
-        # Default to Egypt if no match found
         return "Egypt" if "Egypt" in available_countries else available_countries[0]
-
     except:
         return "Egypt" if "Egypt" in available_countries else available_countries[0]
+
+# ─────────────────────────────────────────────
+# BUILD COUNTRY LIST — User country first, then alphabetical
+# ─────────────────────────────────────────────
+def build_country_list(cities_dict, user_country):
+    all_countries = sorted(list(cities_dict.keys()))
+    if user_country in all_countries:
+        return [user_country] + [c for c in all_countries if c != user_country]
+    return all_countries
 
 # ─────────────────────────────────────────────
 # WEB SEARCH
@@ -187,71 +213,176 @@ def show_app():
     anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
     serper_key = st.secrets["keys"]["SERPER_API_KEY"]
 
+    # ── HEADER ──────────────────────────────
     col1, col2 = st.columns([4, 1])
     with col1:
         st.title("🛡️ Sales Growth Radar")
     with col2:
         profile = st.session_state.user_profile
-        st.markdown(f"**{profile['name']}** · {profile['role'].replace('_', ' ').title()}")
+        # Username and role on two separate lines
+        st.markdown(f"**{profile['name']}**")
+        st.markdown(f"{profile['role'].replace('_', ' ').title()}")
         if st.button("Sign Out", use_container_width=True):
             logout()
 
     st.divider()
 
-    cities = load_cities()
+    # ── LOAD ALL DATA FROM DATABASE ─────────
+    cities_dict = load_countries_and_cities()
+    industries  = load_industries()
+    verticals   = load_verticals()
 
-    if not cities:
+    if not cities_dict:
         st.error("Could not load configuration from database. Please try again.")
         return
 
-    # Pass available countries to auto-detect — no hardcoding
-    country_list = sorted(list(cities.keys()))
-    default_country = get_user_country(country_list)
-    default_index = country_list.index(default_country) if default_country in country_list else 0
+    # ── COUNTRY LIST — user country first ───
+    user_country  = detect_user_country(sorted(list(cities_dict.keys())))
+    country_list  = build_country_list(cities_dict, user_country)
+    country_options = ["All Countries"] + country_list
 
+    # ── SIDEBAR ─────────────────────────────
     with st.sidebar:
         st.header("🎯 Search Criteria")
-        country = st.selectbox("Target Country", country_list, index=default_index)
-        city_list = cities.get(country, ["All " + country])
-        city = st.selectbox("Target City", city_list)
-        num_leads = st.number_input("Number of Leads", min_value=3, max_value=100, value=10)
+
+        # 1. SCOPE
+        scope = st.selectbox(
+            "What are you looking for?",
+            ["Partners", "Clients", "Mailing List"],
+            index=0
+        )
+
         st.divider()
-        search_button = st.button("🔍 Find Partners", type="primary", use_container_width=True)
 
-    location = city + ", " + country if not city.startswith("All") else country
+        # 2. INDUSTRY
+        industry_options = ["All Industries"] + industries if industries else ["All Industries"]
+        industry = st.selectbox("Industry", industry_options)
 
+        # 3. SUB-INDUSTRY / VERTICAL
+        vertical_options = ["All Verticals"] + verticals if verticals else ["All Verticals"]
+        vertical = st.selectbox("Sub-Industry / Vertical", vertical_options)
+
+        st.divider()
+
+        # 4. COUNTRY — user country is first in list
+        default_country_index = country_options.index(user_country) if user_country in country_options else 1
+        country = st.selectbox("Target Country", country_options, index=default_country_index)
+
+        # 5. CITY — alphabetical, "All" option at top
+        if country == "All Countries":
+            city = "All Countries"
+            st.caption("Results will be sorted by country, then by city.")
+        else:
+            city_options = ["All " + country] + cities_dict.get(country, [])
+            city = st.selectbox("Target City", city_options)
+
+        st.divider()
+
+        # 6. ROW LIMIT — no limit by default
+        limit_on = st.checkbox("Limit number of results", value=False)
+        if limit_on:
+            num_leads = st.number_input("Maximum results", min_value=1, value=10, step=5)
+        else:
+            num_leads = 9999  # No limit — return everything found
+
+        st.divider()
+
+        # 7. SEARCH BUTTON
+        search_button = st.button("🔍 Search", type="primary", use_container_width=True)
+
+    # ── LOCATION LABELS ──────────────────────
+    if country == "All Countries":
+        location_display   = "All Countries"
+        location_for_search = "worldwide"
+        sort_by = "country"
+    elif city.startswith("All "):
+        location_display   = country
+        location_for_search = country
+        sort_by = "city"
+    else:
+        location_display   = f"{city}, {country}"
+        location_for_search = f"{city}, {country}"
+        sort_by = "none"
+
+    # ── SEARCH CONTEXT HEADER ────────────────
+    context_line = f"### 📍 {scope} — {location_display}"
+    if industry != "All Industries":
+        context_line += f" · {industry}"
+    if vertical != "All Verticals":
+        context_line += f" · {vertical}"
+    st.markdown(context_line)
+
+    # ── SEARCH EXECUTION ─────────────────────
     if search_button:
         client = anthropic.Anthropic(api_key=anthropic_key)
 
-        with st.spinner("Searching the web for potential partners in " + location + "..."):
-            queries = [
-                "IT system integrators cybersecurity " + location + " 2024",
-                "managed service providers MSP " + location + " cybersecurity",
-                "cybersecurity resellers partners " + location + " Cisco SonicWall",
-                "IT solutions companies " + location + " network security"
-            ]
+        industry_filter = f" in the {industry} industry" if industry != "All Industries" else ""
+        vertical_filter = f" focused on {vertical}" if vertical != "All Verticals" else ""
+
+        # Build search queries based on scope
+        with st.spinner(f"Searching for {scope.lower()} in {location_display}..."):
+            if scope == "Partners":
+                queries = [
+                    f"IT system integrators cybersecurity {location_for_search} 2024",
+                    f"managed service providers MSP {location_for_search} cybersecurity",
+                    f"cybersecurity resellers partners {location_for_search} Cisco SonicWall",
+                    f"IT solutions companies {location_for_search} network security"
+                ]
+            elif scope == "Clients":
+                queries = [
+                    f"companies {location_for_search}{industry_filter}{vertical_filter}",
+                    f"enterprises {location_for_search}{industry_filter} digital transformation",
+                    f"organizations {location_for_search}{vertical_filter} IT security",
+                    f"businesses {location_for_search}{industry_filter} cybersecurity"
+                ]
+            else:  # Mailing List
+                queries = [
+                    f"companies {location_for_search}{industry_filter}{vertical_filter}",
+                    f"businesses {location_for_search}{industry_filter}",
+                    f"organizations {location_for_search}{vertical_filter}",
+                    f"IT companies {location_for_search}"
+                ]
+
             all_results = ""
             for query in queries:
                 results = search_web(query, serper_key)
-                all_results += "\nSearch: " + query + "\nResults:\n" + results + "\n"
+                all_results += f"\nSearch: {query}\nResults:\n{results}\n"
 
-        with st.spinner("Analyzing and qualifying leads..."):
+        # AI ANALYSIS
+        with st.spinner("Analyzing results..."):
+            limit_instruction = f"up to {num_leads}" if num_leads < 9999 else "all"
+
             prompt = (
-                "You are a strict business development researcher for Purpleguard, a cybersecurity company. "
-                "We need PARTNERS specifically located in " + location + " only. "
-                "Do NOT include companies from other cities or countries. "
-                "If there are not enough companies found, return only what is available. "
-                "We need IT System Integrators, MSPs, IT Resellers, medium size 20-200 employees, "
-                "who can resell Managed Cybersecurity Services and solutions from SonicWall, Barracuda, CrowdStrike, Cisco. "
-                "Based on these search results:\n" + all_results +
-                "\nExtract up to " + str(num_leads) + " potential partners STRICTLY located in " + location +
-                " and return ONLY a Python list of lists:\n"
-                "[[\"Company Name\", \"Country\", \"City\", \"What They Do\", "
-                "\"Cybersecurity Practice Yes/No/Partial\", \"Managed Services Strong/Weak/None\", "
-                "\"Known Vendors\", \"Has Sales Team Yes/No\", \"Client Base\", \"Website\", "
-                "\"Fit Score High/Medium/Low\"]]\n"
-                "Return ONLY the raw list no markdown no explanation. "
-                "If no companies found return empty list []."
+                f"You are a strict business development researcher for Purpleguard, a cybersecurity company. "
+                f"We are looking for {scope.lower()} located in {location_for_search}. "
+                f"Do NOT include companies from other locations. "
+                f"If there are not enough companies found, return only what is available.\n"
+            )
+
+            if scope == "Partners":
+                prompt += (
+                    f"We need IT System Integrators, MSPs, IT Resellers, medium size 20-200 employees, "
+                    f"who can resell Managed Cybersecurity Services and solutions "
+                    f"from SonicWall, Barracuda, CrowdStrike, Cisco.\n"
+                )
+            elif scope == "Clients":
+                prompt += f"We need potential client companies{industry_filter}{vertical_filter} who may need cybersecurity services.\n"
+            else:
+                prompt += f"We need a broad list of companies{industry_filter}{vertical_filter} for a mailing campaign.\n"
+
+            prompt += (
+                f"Based on these search results:\n{all_results}\n"
+                f"Extract {limit_instruction} companies STRICTLY located in {location_for_search} "
+                f"and return ONLY a Python list of lists with exactly these 6 fields:\n"
+                f'[["Company Name", "City", "Fit Score", "Client Base", "Known Vendors", "Experience", "Website"]]\n'
+                f"Rules:\n"
+                f"- Fit Score: use exactly High, Medium, or Low\n"
+                f"- Client Base: use exactly Enterprise, Medium, Small, or Mixed\n"
+                f"- Known Vendors: list ALL vendors found, comma separated. Use empty string if none found.\n"
+                f"- Experience: one sentence describing what the company does\n"
+                f"- Website: full URL starting with https:// if available, empty string if not\n"
+                f"Return ONLY the raw Python list. No markdown. No explanation. "
+                f"If no companies found return empty list []."
             )
 
             response = client.messages.create(
@@ -267,39 +398,65 @@ def show_app():
                 st.stop()
 
         if len(leads) == 0:
-            st.warning("No partners found specifically in " + location + ". Try a broader area or different city.")
+            st.warning(f"No {scope.lower()} found in {location_display}. Try broadening your search criteria.")
         else:
-            st.success("Found " + str(len(leads)) + " potential partners in " + location + "!")
+            # BUILD DATAFRAME
+            df = pd.DataFrame(leads, columns=[
+                "Company Name", "City", "Fit Score",
+                "Client Base", "Known Vendors", "Experience", "Website"
+            ])
 
-            headers = [
-                "Company Name", "Country", "City", "What They Do",
-                "Cybersecurity Practice", "Managed Services", "Known Vendors",
-                "Has Sales Team", "Client Base", "Website", "Fit Score"
-            ]
-            df = pd.DataFrame(leads, columns=headers)
-            st.dataframe(df, use_container_width=True, height=600)
+            # SORT RESULTS
+            if sort_by == "country":
+                df = df.sort_values(["City"]).reset_index(drop=True)
+            elif sort_by == "city":
+                df = df.sort_values(["City"]).reset_index(drop=True)
 
+            # ADD SERIAL NUMBER
+            df.insert(0, "#", range(1, len(df) + 1))
+
+            # MAKE WEBSITE CLICKABLE
+            def make_link(url):
+                if url and str(url).startswith("http"):
+                    return f'<a href="{url}" target="_blank">🔗 Visit</a>'
+                return url
+
+            display_df = df.copy()
+            display_df["Website"] = display_df["Website"].apply(make_link)
+
+            st.success(f"✅ Found {len(df)} {scope.lower()} in {location_display}")
+
+            # DISPLAY TABLE WITH CLICKABLE LINKS
+            st.write(
+                display_df.to_html(escape=False, index=False),
+                unsafe_allow_html=True
+            )
+
+            # EXCEL EXPORT — clean version without HTML tags
+            export_df = df.copy()
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "Leads"
+            ws.title = scope
+            headers = list(export_df.columns)
             for col, header in enumerate(headers, 1):
                 ws.cell(row=1, column=col, value=header)
             today = datetime.now().strftime("%Y-%m-%d")
-            for row, lead in enumerate(leads, 2):
-                for col, value in enumerate(lead, 1):
-                    ws.cell(row=row, column=col, value=value)
-                ws.cell(row=row, column=12, value=today)
-            wb.save("purpleguard_leads.xlsx")
+            for row_idx, row_data in enumerate(export_df.values.tolist(), 2):
+                for col_idx, value in enumerate(row_data, 1):
+                    ws.cell(row=row_idx, column=col_idx, value=str(value))
 
-            with open("purpleguard_leads.xlsx", "rb") as f:
+            safe_location = location_display.replace(", ", "_").replace(" ", "_")
+            filename = f"SGR_{scope}_{safe_location}_{today}.xlsx"
+            wb.save(filename)
+
+            with open(filename, "rb") as f:
                 st.download_button(
-                    "📥 Download Excel", f,
-                    "purpleguard_leads.xlsx",
+                    "📥 Download Excel", f, filename,
                     use_container_width=True
                 )
 
     else:
-        st.info("👈 Select your target country and city, then click Find Partners!")
+        st.info("👈 Set your search criteria in the sidebar and click Search")
 
 # ─────────────────────────────────────────────
 # ROUTER
