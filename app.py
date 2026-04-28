@@ -179,6 +179,12 @@ def detect_user_country(available_countries):
 
     # Final fallback — always Egypt
     return "Egypt" if "Egypt" in available_countries else available_countries[0]
+
+def build_country_list(cities_dict, user_country):
+    all_countries = sorted(list(cities_dict.keys()))
+    if user_country in all_countries:
+        return [user_country] + [c for c in all_countries if c != user_country]
+    return all_countries
 # ─────────────────────────────────────────────
 # WEB SEARCH — Returns snippets AND url map
 # CHANGE 2: We now also return a URL map (domain → full URL)
