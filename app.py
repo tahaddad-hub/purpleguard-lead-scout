@@ -270,16 +270,16 @@ def save_to_suspects(df, country, scope, user_profile):
 
             # Build record to insert
             record = {
-                "name":        row.get("Company Name", ""),
-                "city":        row.get("City", ""),
-                "country":     country,
-                "website":     website,
-                "client_base": row.get("Client Base", ""),
-                "experience":  row.get("Experience", ""),
-                "mission":     scope,
-                "tenant_id":   user_profile.get("tenant_id"),
-                "owner_id":    user_profile.get("id"),
-                "created_at":  datetime.utcnow().isoformat()
+                "company_name": row.get("Company Name", ""),
+                "city":         row.get("City", ""),
+                "country":      country,
+                "website":      website,
+                "client_base":  row.get("Client Base", ""),
+                "experience":   row.get("Experience", ""),
+                "mission":      scope,
+                "tenant_id":    user_profile.get("tenant_id"),
+                "user_id":      user_profile.get("id"),
+                "created_at":   datetime.utcnow().isoformat()
             }
 
             supabase.table("suspects").insert(record).execute()
@@ -290,7 +290,6 @@ def save_to_suspects(df, country, scope, user_profile):
     except Exception as e:
         st.error("Error saving to database: " + str(e))
         return 0, 0, []
-
 # ─────────────────────────────────────────────
 # MAIN APP
 # ─────────────────────────────────────────────
