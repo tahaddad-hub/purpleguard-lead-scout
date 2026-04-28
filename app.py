@@ -36,9 +36,8 @@ def show_login():
         st.markdown("## 🛡️ Sales Growth Radar")
         st.markdown("#### Please sign in to continue")
         st.divider()
-        email = st.text_input("Email", placeholder="your@email.com")
-        password = st.text_input("Password", type="password", placeholder="••••••••",
-                                 autocomplete="current-password")
+        email = st.text_input("Email", placeholder="your@email.com", autocomplete="off")
+        password = st.text_input("Password", type="password", placeholder="••••••••", autocomplete="new-password")
         login_button = st.button("Sign In", type="primary", use_container_width=True)
 
         if login_button:
