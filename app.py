@@ -157,25 +157,28 @@ def detect_user_country(available_countries):
     try:
         response = requests.get("https://ipapi.co/json/", timeout=3)
         data = response.json()
-        detected = data.get("country_name", "")
+        detected = data.get("country_name", "").strip()
+
+        # Exact match first
         if detected in available_countries:
             return detected
+
+        # Normalize match — handle slight name differences
+        detected_lower = detected.lower()
         for country in available_countries:
-            if detected.lower() in country.lower() or country.lower() in detected.lower():
+            if detected_lower == country.lower():
                 return country
-        return "Egypt" if "Egypt" in available_countries else available_countries[0]
+
+        # Partial match — last resort
+        for country in available_countries:
+            if detected_lower in country.lower() or country.lower() in detected_lower:
+                return country
+
     except:
-        return "Egypt" if "Egypt" in available_countries else available_countries[0]
+        pass
 
-# ─────────────────────────────────────────────
-# BUILD COUNTRY LIST — User country first, then alphabetical
-# ─────────────────────────────────────────────
-def build_country_list(cities_dict, user_country):
-    all_countries = sorted(list(cities_dict.keys()))
-    if user_country in all_countries:
-        return [user_country] + [c for c in all_countries if c != user_country]
-    return all_countries
-
+    # Final fallback — always Egypt
+    return "Egypt" if "Egypt" in available_countries else available_countries[0]
 # ─────────────────────────────────────────────
 # WEB SEARCH — Returns snippets AND url map
 # CHANGE 2: We now also return a URL map (domain → full URL)
