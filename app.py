@@ -318,10 +318,7 @@ def show_app():
         if st.button("Sign Out", use_container_width=True):
             logout()
             
-    # TEMPORARY DEBUG — remove after testing
-    st.write("User Profile:", st.session_state.user_profile)
-
-    st.divider()
+        st.divider()
 
     # ── LOAD ALL DATA FROM DATABASE ─────────
     cities_dict = load_countries_and_cities()
