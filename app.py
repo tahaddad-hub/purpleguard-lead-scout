@@ -624,4 +624,67 @@ def show_app():
                 height=600,
                 hide_index=True,
                 column_config={
-                    "Websit
+                    "Website": st.column_config.LinkColumn(
+                        "Website",
+                        display_text="🔗 Visit"
+                    ),
+                    "#": st.column_config.NumberColumn("#", width="small"),
+                    "Client Base": st.column_config.TextColumn("Client Base", width="small"),
+                }
+            )
+
+            # SAVE TO SUSPECTS WITH DEDUPLICATION
+            with st.spinner("Saving to database..."):
+                saved, skipped, excluded = save_to_suspects(
+                    df,
+                    country if country != "All Countries" else location_display,
+                    scope,
+                    st.session_state.user_profile
+                )
+
+            # SAVE SUMMARY MESSAGE
+            parts = []
+            if saved    > 0: parts.append(f"💾 {saved} new suspects saved")
+            if skipped  > 0: parts.append(f"⏭️ {skipped} already existed — skipped")
+            if excluded > 0: parts.append(f"🚫 {excluded} excluded — own company")
+
+            if saved > 0:
+                st.info(" | ".join(parts))
+            elif saved == 0 and skipped > 0:
+                st.warning("⚠️ All results already exist in the database. No new suspects added.")
+            elif saved == 0 and excluded > 0:
+                st.warning("⚠️ All results were excluded. No new suspects added.")
+
+            # EXCEL EXPORT
+            export_df = df.copy()
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = scope
+            headers = list(export_df.columns)
+            for col, header in enumerate(headers, 1):
+                ws.cell(row=1, column=col, value=header)
+            today = datetime.now().strftime("%Y-%m-%d")
+            for row_idx, row_data in enumerate(export_df.values.tolist(), 2):
+                for col_idx, value in enumerate(row_data, 1):
+                    ws.cell(row=row_idx, column=col_idx, value=str(value))
+
+            safe_location = location_display.replace(", ", "_").replace(" ", "_")
+            filename = f"SGR_{scope}_{safe_location}_{today}.xlsx"
+            wb.save(filename)
+
+            with open(filename, "rb") as f:
+                st.download_button(
+                    "📥 Download Excel", f, filename,
+                    use_container_width=True
+                )
+
+    else:
+        st.info("👈 Set your search criteria in the sidebar and click Search")
+
+# ─────────────────────────────────────────────
+# ROUTER
+# ─────────────────────────────────────────────
+if st.session_state.user is None:
+    show_login()
+else:
+    show_app()
