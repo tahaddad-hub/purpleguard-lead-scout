@@ -510,7 +510,7 @@ def show_app():
 
         # AI ANALYSIS
         with st.spinner("Analyzing results..."):
-            limit_instruction = f"up to {num_leads}" if num_leads < 9999 else "all"
+            limit_instruction = f"up to {num_leads}" if num_leads < 9999 else "as many as possible — do not limit yourself"
 
             prompt = (
                 f"You are a strict business development researcher. "
@@ -538,7 +538,8 @@ def show_app():
 
             prompt += (
                 f"Based on these search results:\n{all_results}\n"
-                f"Extract {limit_instruction} companies STRICTLY located in {location_for_search} "
+                f"Extract {limit_instruction} unique companies STRICTLY located in {location_for_search}. "
+                f"Return every single company you find — do not stop at 10. "
                 f"and return ONLY a Python list of lists with exactly these 6 fields:\n"
                 f'[["Company Name", "City", "Client Base", "Known Vendors", "Experience", "Website"]]\n'
                 f"Rules:\n"
