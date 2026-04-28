@@ -182,14 +182,14 @@ def build_country_list(cities_dict, user_country):
 def search_web(query, serper_key):
     url = "https://google.serper.dev/search"
     headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
-    payload = {"q": query, "num": 5}
+    payload = {"q": query, "num": 10}
     response = requests.post(url, headers=headers, json=payload)
     results = response.json()
     snippets = []
     if "answerBox" in results:
         snippets.append("Summary: " + results["answerBox"].get("snippet", ""))
     if "organic" in results:
-        for r in results["organic"][:5]:
+        for r in results["organic"][:10]:
             snippets.append(
                 "- " + r.get("title", "") +
                 ": " + r.get("snippet", "") +
@@ -335,21 +335,27 @@ def show_app():
                     f"IT system integrators cybersecurity {location_for_search} 2024",
                     f"managed service providers MSP {location_for_search} cybersecurity",
                     f"cybersecurity resellers partners {location_for_search} Cisco SonicWall",
-                    f"IT solutions companies {location_for_search} network security"
+                    f"IT solutions companies {location_for_search} network security",
+                    f"list of IT companies {location_for_search}",
+                    f"technology resellers distributors {location_for_search}"
                 ]
             elif scope == "Clients":
                 queries = [
                     f"companies {location_for_search}{industry_filter}{vertical_filter}",
                     f"enterprises {location_for_search}{industry_filter} digital transformation",
                     f"organizations {location_for_search}{vertical_filter} IT security",
-                    f"businesses {location_for_search}{industry_filter} cybersecurity"
+                    f"businesses {location_for_search}{industry_filter} cybersecurity",
+                    f"list of {industry_filter} companies {location_for_search}",
+                    f"top companies {location_for_search}{vertical_filter}"
                 ]
             else:  # Mailing List
                 queries = [
                     f"companies {location_for_search}{industry_filter}{vertical_filter}",
                     f"businesses {location_for_search}{industry_filter}",
                     f"organizations {location_for_search}{vertical_filter}",
-                    f"IT companies {location_for_search}"
+                    f"IT companies {location_for_search}",
+                    f"list of companies {location_for_search}{industry_filter}",
+                    f"directory companies {location_for_search}{vertical_filter}"
                 ]
 
             all_results = ""
