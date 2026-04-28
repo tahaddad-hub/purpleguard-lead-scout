@@ -251,18 +251,17 @@ def show_app():
     # ── SIDEBAR ─────────────────────────────
     # All widgets use key= so Streamlit saves their value in session_state
     # Without key=, every widget interaction rerenders the page and resets all fields
+    # Dividers removed and spacing tightened to eliminate vertical scrollbar
     with st.sidebar:
-        st.header("🎯 Search Criteria")
+        st.markdown("#### 🎯 Search Criteria")
 
         # 1. SCOPE
         scope = st.selectbox(
-            "What are you looking for?",
+            "Looking for",
             ["Partners", "Clients", "Mailing List"],
             index=0,
             key="scope"
         )
-
-        st.divider()
 
         # 2. INDUSTRY
         industry_options = ["All Industries"] + industries if industries else ["All Industries"]
@@ -270,37 +269,33 @@ def show_app():
 
         # 3. SUB-INDUSTRY / VERTICAL
         vertical_options = ["All Verticals"] + verticals if verticals else ["All Verticals"]
-        vertical = st.selectbox("Sub-Industry / Vertical", vertical_options, key="vertical")
-
-        st.divider()
+        vertical = st.selectbox("Vertical", vertical_options, key="vertical")
 
         # 4. COUNTRY — user country is first in list, only set default on first load
         if "country" not in st.session_state:
             default_country_index = country_options.index(user_country) if user_country in country_options else 1
             st.session_state["country"] = country_options[default_country_index]
-        country = st.selectbox("Target Country", country_options, key="country")
+        country = st.selectbox("Country", country_options, key="country")
 
         # 5. CITY — rebuild list when country changes, reset city if country changed
         if country == "All Countries":
             city = "All Countries"
-            st.caption("Results will be sorted by country, then by city.")
+            st.caption("Sorted by country then city.")
         else:
             city_options = ["All " + country] + cities_dict.get(country, [])
             # Reset city if it no longer belongs to selected country
             if "city" in st.session_state and st.session_state["city"] not in city_options:
                 st.session_state["city"] = city_options[0]
-            city = st.selectbox("Target City", city_options, key="city")
-
-        st.divider()
+            city = st.selectbox("City", city_options, key="city")
 
         # 6. ROW LIMIT — no limit by default
-        limit_on = st.checkbox("Limit number of results", value=False, key="limit_on")
+        limit_on = st.checkbox("Limit results", value=False, key="limit_on")
         if limit_on:
-            num_leads = st.number_input("Maximum results", min_value=1, value=10, step=5, key="num_leads")
+            num_leads = st.number_input("Max results", min_value=1, value=10, step=5, key="num_leads")
         else:
             num_leads = 9999  # No limit — return everything found
 
-        st.divider()
+        st.markdown("")
 
         # 7. SEARCH BUTTON
         search_button = st.button("🔍 Search", type="primary", use_container_width=True)
