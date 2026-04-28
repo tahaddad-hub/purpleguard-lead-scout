@@ -25,7 +25,7 @@ if "user" not in st.session_state:
 if "user_profile" not in st.session_state:
     st.session_state.user_profile = None
 if "detected_country" not in st.session_state:
-    st.session_state.detected_country = None  # Detected once, never again
+    st.session_state.detected_country = None
 
 # ─────────────────────────────────────────────
 # LOGIN SCREEN
@@ -151,8 +151,7 @@ def load_verticals():
 
 # ─────────────────────────────────────────────
 # LOAD TENANT OWN DOMAINS FROM SUPABASE
-# These are excluded from suspects — we never save our own company
-# Admin manages this in the tenants table own_domains field
+# Admin manages this — zero hardcoding
 # ─────────────────────────────────────────────
 def load_own_domains(tenant_id):
     try:
@@ -164,7 +163,7 @@ def load_own_domains(tenant_id):
             .execute()
         if response.data and response.data.get("own_domains"):
             domains = [d.strip().lower() for d in response.data["own_domains"].split(",")]
-            return domains
+            return [d for d in domains if d]
         return []
     except:
         return []
@@ -178,17 +177,14 @@ def detect_user_country(available_countries):
         data = response.json()
         detected = data.get("country_name", "").strip()
 
-        # Exact match first
         if detected in available_countries:
             return detected
 
-        # Normalized match
         detected_lower = detected.lower()
         for country in available_countries:
             if detected_lower == country.lower():
                 return country
 
-        # Partial match — last resort
         for country in available_countries:
             if detected_lower in country.lower() or country.lower() in detected_lower:
                 return country
@@ -196,7 +192,6 @@ def detect_user_country(available_countries):
     except:
         pass
 
-    # Final fallback — always Egypt
     return "Egypt" if "Egypt" in available_countries else available_countries[0]
 
 # ─────────────────────────────────────────────
@@ -259,9 +254,7 @@ def extract_domain(url):
         return ""
 
 # ─────────────────────────────────────────────
-# KNOWN DIRECTORY DOMAINS
-# These are listing/directory sites — not real company websites
-# Admin can extend this list in the future via database
+# KNOWN DIRECTORY DOMAINS — Not real company websites
 # ─────────────────────────────────────────────
 DIRECTORY_DOMAINS = [
     "clutch.co", "linkedin.com", "facebook.com", "twitter.com",
@@ -286,12 +279,6 @@ def clean_and_parse(raw):
 
 # ─────────────────────────────────────────────
 # SAVE TO SUSPECTS WITH DEDUPLICATION
-# Deduplication:
-#   1. By domain — same website = same company
-#   2. By company name — fallback when no website
-# Exclusions:
-#   1. Own company domains — never save ourselves
-#   2. Directory URLs — cleaned before saving
 # ─────────────────────────────────────────────
 def save_to_suspects(df, country, scope, user_profile):
     try:
@@ -312,7 +299,7 @@ def save_to_suspects(df, country, scope, user_profile):
                 excluded_count += 1
                 continue
 
-            # EXCLUSION 2 — Directory URLs — strip them, don't reject the company
+            # EXCLUSION 2 — Directory URLs — strip URL, keep company
             if website and is_directory_url(website):
                 website = ""
                 domain  = ""
@@ -327,7 +314,7 @@ def save_to_suspects(df, country, scope, user_profile):
                     skipped_count += 1
                     continue
 
-            # DEDUPLICATION 2 — By company name (when no website)
+            # DEDUPLICATION 2 — By company name (fallback when no website)
             if not domain and company_name:
                 existing = supabase.table("suspects")\
                     .select("id")\
@@ -404,7 +391,6 @@ def show_app():
     with st.sidebar:
         st.markdown("#### 🎯 Search Criteria")
 
-        # 1. SCOPE
         scope = st.selectbox(
             "Looking for",
             ["Partners", "Clients", "Mailing List"],
@@ -412,21 +398,17 @@ def show_app():
             key="scope"
         )
 
-        # 2. INDUSTRY
         industry_options = ["All Industries"] + industries if industries else ["All Industries"]
         industry = st.selectbox("Industry", industry_options, key="industry")
 
-        # 3. VERTICAL
         vertical_options = ["All Verticals"] + verticals if verticals else ["All Verticals"]
         vertical = st.selectbox("Vertical", vertical_options, key="vertical")
 
-        # 4. COUNTRY
         if "country" not in st.session_state:
             default_country_index = country_options.index(user_country) if user_country in country_options else 1
             st.session_state["country"] = country_options[default_country_index]
         country = st.selectbox("Country", country_options, key="country")
 
-        # 5. CITY
         if country == "All Countries":
             city = "All Countries"
             st.caption("Sorted by country then city.")
@@ -436,7 +418,6 @@ def show_app():
                 st.session_state["city"] = city_options[0]
             city = st.selectbox("City", city_options, key="city")
 
-        # 6. ROW LIMIT
         limit_on = st.checkbox("Limit results", value=False, key="limit_on")
         if limit_on:
             num_leads = st.number_input("Max results", min_value=1, value=10, step=5, key="num_leads")
@@ -444,8 +425,6 @@ def show_app():
             num_leads = 9999
 
         st.markdown("")
-
-        # 7. SEARCH BUTTON
         search_button = st.button("🔍 Search", type="primary", use_container_width=True)
 
     # ── LOCATION LABELS ──────────────────────
@@ -511,7 +490,7 @@ def show_app():
                     f"list of {industry_filter} companies {location_for_search}",
                     f"top companies {location_for_search}{vertical_filter}"
                 ]
-            else:  # Mailing List
+            else:
                 queries = [
                     f"companies {location_for_search}{industry_filter}{vertical_filter}",
                     f"businesses {location_for_search}{industry_filter}",
@@ -540,7 +519,6 @@ def show_app():
                 f"If there are not enough companies found, return only what is available.\n"
             )
 
-            # Exclude own company
             if tenant_name:
                 prompt += (
                     f"IMPORTANT: Do NOT include '{tenant_name}' or any of its brands "
@@ -588,13 +566,13 @@ def show_app():
         if len(suspects) == 0:
             st.warning(f"No {scope.lower()} found in {location_display}. Try broadening your search criteria.")
         else:
-            # BUILD DATAFRAME
+            # ── BUILD DATAFRAME ──────────────────
             df = pd.DataFrame(suspects, columns=[
                 "Company Name", "City",
                 "Client Base", "Known Vendors", "Experience", "Website"
             ])
 
-            # RESOLVE WEBSITE — prefer Serper URL, reject directory URLs
+            # ── STEP 1: RESOLVE WEBSITE — prefer Serper URL, reject directories ──
             def resolve_website(row):
                 claude_url = row.get("Website", "")
                 if claude_url and is_directory_url(claude_url):
@@ -608,16 +586,23 @@ def show_app():
 
             df["Website"] = df.apply(resolve_website, axis=1)
 
-            # SORT RESULTS
+            # ── STEP 2: FILTER OWN COMPANY FROM DISPLAY ──
+            own_domains = load_own_domains(st.session_state.user_profile.get("tenant_id"))
+            if own_domains:
+                df = df[~df["Website"].apply(
+                    lambda w: any(d in extract_domain(w) for d in own_domains)
+                )].reset_index(drop=True)
+
+            # ── STEP 3: SORT ──
             if sort_by in ("country", "city"):
                 df = df.sort_values(["City"]).reset_index(drop=True)
 
-            # ADD SERIAL NUMBER
+            # ── STEP 4: ADD SERIAL NUMBER ──
             df.insert(0, "#", range(1, len(df) + 1))
 
             st.success(f"✅ Found {len(df)} {scope.lower()} in {location_display}")
 
-            # DISPLAY TABLE
+            # ── STEP 5: DISPLAY TABLE ──
             st.dataframe(
                 df,
                 use_container_width=True,
@@ -633,7 +618,7 @@ def show_app():
                 }
             )
 
-            # SAVE TO SUSPECTS WITH DEDUPLICATION
+            # ── STEP 6: SAVE TO SUSPECTS WITH DEDUPLICATION ──
             with st.spinner("Saving to database..."):
                 saved, skipped, excluded = save_to_suspects(
                     df,
@@ -642,7 +627,7 @@ def show_app():
                     st.session_state.user_profile
                 )
 
-            # SAVE SUMMARY MESSAGE
+            # ── STEP 7: SAVE SUMMARY MESSAGE ──
             parts = []
             if saved    > 0: parts.append(f"💾 {saved} new suspects saved")
             if skipped  > 0: parts.append(f"⏭️ {skipped} already existed — skipped")
@@ -655,7 +640,7 @@ def show_app():
             elif saved == 0 and excluded > 0:
                 st.warning("⚠️ All results were excluded. No new suspects added.")
 
-            # EXCEL EXPORT
+            # ── STEP 8: EXCEL EXPORT ──
             export_df = df.copy()
             wb = openpyxl.Workbook()
             ws = wb.active
