@@ -316,6 +316,9 @@ def show_app():
         st.markdown(f"{profile['role'].replace('_', ' ').title()}")
         if st.button("Sign Out", use_container_width=True):
             logout()
+            
+    # TEMPORARY DEBUG — remove after testing
+    st.write("User Profile:", st.session_state.user_profile)
 
     st.divider()
 
