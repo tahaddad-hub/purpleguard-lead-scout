@@ -110,7 +110,6 @@ def load_countries_and_cities():
                     cities_dict[country_name] = []
                 cities_dict[country_name].append(city["name"])
 
-        # Cities within each country sorted alphabetically
         for country in cities_dict:
             cities_dict[country] = sorted(cities_dict[country])
 
@@ -151,6 +150,26 @@ def load_verticals():
         return []
 
 # ─────────────────────────────────────────────
+# LOAD TENANT OWN DOMAINS FROM SUPABASE
+# These are excluded from suspects — we never save our own company
+# Admin manages this in the tenants table own_domains field
+# ─────────────────────────────────────────────
+def load_own_domains(tenant_id):
+    try:
+        supabase = get_supabase_client()
+        response = supabase.table("tenants")\
+            .select("own_domains")\
+            .eq("id", tenant_id)\
+            .single()\
+            .execute()
+        if response.data and response.data.get("own_domains"):
+            domains = [d.strip().lower() for d in response.data["own_domains"].split(",")]
+            return domains
+        return []
+    except:
+        return []
+
+# ─────────────────────────────────────────────
 # AUTO-DETECT USER COUNTRY
 # ─────────────────────────────────────────────
 def detect_user_country(available_countries):
@@ -163,7 +182,7 @@ def detect_user_country(available_countries):
         if detected in available_countries:
             return detected
 
-        # Normalize match — handle slight name differences
+        # Normalized match
         detected_lower = detected.lower()
         for country in available_countries:
             if detected_lower == country.lower():
@@ -180,15 +199,17 @@ def detect_user_country(available_countries):
     # Final fallback — always Egypt
     return "Egypt" if "Egypt" in available_countries else available_countries[0]
 
+# ─────────────────────────────────────────────
+# BUILD COUNTRY LIST — User country first, then alphabetical
+# ─────────────────────────────────────────────
 def build_country_list(cities_dict, user_country):
     all_countries = sorted(list(cities_dict.keys()))
     if user_country in all_countries:
         return [user_country] + [c for c in all_countries if c != user_country]
     return all_countries
+
 # ─────────────────────────────────────────────
 # WEB SEARCH — Returns snippets AND url map
-# CHANGE 2: We now also return a URL map (domain → full URL)
-# so we can use Serper's actual URLs instead of asking Claude to guess
 # ─────────────────────────────────────────────
 def search_web(query, serper_key):
     url = "https://google.serper.dev/search"
@@ -198,15 +219,15 @@ def search_web(query, serper_key):
     results = response.json()
 
     snippets = []
-    url_map = {}  # company domain → full URL from Serper
+    url_map  = {}
 
     if "answerBox" in results:
         snippets.append("Summary: " + results["answerBox"].get("snippet", ""))
 
     if "organic" in results:
         for r in results["organic"][:10]:
-            link = r.get("link", "")
-            title = r.get("title", "")
+            link    = r.get("link", "")
+            title   = r.get("title", "")
             snippet = r.get("snippet", "")
 
             snippets.append(
@@ -215,10 +236,8 @@ def search_web(query, serper_key):
                 " | URL: " + link
             )
 
-            # Build URL map: extract domain as key, full URL as value
             if link:
                 try:
-                    # Extract domain from URL (e.g. https://www.company.com/page → company.com)
                     domain = link.split("//")[-1].split("/")[0].replace("www.", "")
                     if domain and domain not in url_map:
                         url_map[domain] = link
@@ -234,10 +253,26 @@ def extract_domain(url):
     if not url:
         return ""
     try:
-        domain = url.split("//")[-1].split("/")[0].replace("www.", "").lower()
+        domain = url.split("//")[-1].split("/")[0].replace("www.", "").lower().strip()
         return domain
     except:
         return ""
+
+# ─────────────────────────────────────────────
+# KNOWN DIRECTORY DOMAINS
+# These are listing/directory sites — not real company websites
+# Admin can extend this list in the future via database
+# ─────────────────────────────────────────────
+DIRECTORY_DOMAINS = [
+    "clutch.co", "linkedin.com", "facebook.com", "twitter.com",
+    "instagram.com", "yellowpages.com", "yelp.com", "bloomberg.com",
+    "crunchbase.com", "zoominfo.com", "glassdoor.com", "indeed.com",
+    "google.com", "wikipedia.org", "forbes.com", "reuters.com"
+]
+
+def is_directory_url(url):
+    domain = extract_domain(url)
+    return any(d in domain for d in DIRECTORY_DOMAINS)
 
 # ─────────────────────────────────────────────
 # PARSE AI RESPONSE
@@ -250,23 +285,39 @@ def clean_and_parse(raw):
     return ast.literal_eval(raw)
 
 # ─────────────────────────────────────────────
-# SAVE TO SUSPECTS TABLE WITH DEDUPLICATION
-# CHANGE 3: Save results to Supabase suspects table
-# Deduplication: check URL domain before saving — same domain = same company = skip
+# SAVE TO SUSPECTS WITH DEDUPLICATION
+# Deduplication:
+#   1. By domain — same website = same company
+#   2. By company name — fallback when no website
+# Exclusions:
+#   1. Own company domains — never save ourselves
+#   2. Directory URLs — cleaned before saving
 # ─────────────────────────────────────────────
 def save_to_suspects(df, country, scope, user_profile):
     try:
         supabase = get_supabase_client()
 
-        saved_count = 0
-        skipped_count = 0
-        skipped_names = []
+        own_domains    = load_own_domains(user_profile.get("tenant_id"))
+        saved_count    = 0
+        skipped_count  = 0
+        excluded_count = 0
 
         for _, row in df.iterrows():
-            website = row.get("Website", "")
-            domain = extract_domain(website)
+            company_name = row.get("Company Name", "").strip()
+            website      = row.get("Website", "").strip()
+            domain       = extract_domain(website)
 
-            # DEDUPLICATION: Check if this domain already exists in suspects
+            # EXCLUSION 1 — Own company domains
+            if domain and any(own in domain for own in own_domains):
+                excluded_count += 1
+                continue
+
+            # EXCLUSION 2 — Directory URLs — strip them, don't reject the company
+            if website and is_directory_url(website):
+                website = ""
+                domain  = ""
+
+            # DEDUPLICATION 1 — By domain
             if domain:
                 existing = supabase.table("suspects")\
                     .select("id")\
@@ -274,38 +325,51 @@ def save_to_suspects(df, country, scope, user_profile):
                     .execute()
                 if existing.data and len(existing.data) > 0:
                     skipped_count += 1
-                    skipped_names.append(row.get("Company Name", "Unknown"))
-                    continue  # Skip — already in database
+                    continue
 
-            # Build record to insert
+            # DEDUPLICATION 2 — By company name (when no website)
+            if not domain and company_name:
+                existing = supabase.table("suspects")\
+                    .select("id")\
+                    .ilike("company_name", company_name)\
+                    .execute()
+                if existing.data and len(existing.data) > 0:
+                    skipped_count += 1
+                    continue
+
+            # BUILD RECORD
             record = {
-                "company_name": row.get("Company Name", ""),
+                "company_name": company_name,
                 "city":         row.get("City", ""),
-                 "country":      country,
+                "country":      country,
                 "website":      website,
                 "client_base":  row.get("Client Base", ""),
                 "experience":   row.get("Experience", ""),
                 "mission":      scope,
                 "status":       "new",
                 "is_active":    True,
+                "phone":        "",
+                "address":      "",
                 "tenant_id":    user_profile.get("tenant_id"),
                 "user_id":      user_profile.get("id"),
                 "created_at":   datetime.utcnow().isoformat()
             }
+
             supabase.table("suspects").insert(record).execute()
             saved_count += 1
 
-        return saved_count, skipped_count, skipped_names
+        return saved_count, skipped_count, excluded_count
 
     except Exception as e:
         st.error("Error saving to database: " + str(e))
-        return 0, 0, []
+        return 0, 0, 0
+
 # ─────────────────────────────────────────────
 # MAIN APP
 # ─────────────────────────────────────────────
 def show_app():
     anthropic_key = st.secrets["keys"]["ANTHROPIC_API_KEY"]
-    serper_key = st.secrets["keys"]["SERPER_API_KEY"]
+    serper_key    = st.secrets["keys"]["SERPER_API_KEY"]
 
     # ── HEADER ──────────────────────────────
     col1, col2 = st.columns([4, 1])
@@ -317,8 +381,8 @@ def show_app():
         st.markdown(f"{profile['role'].replace('_', ' ').title()}")
         if st.button("Sign Out", use_container_width=True):
             logout()
-            
-        st.divider()
+
+    st.divider()
 
     # ── LOAD ALL DATA FROM DATABASE ─────────
     cities_dict = load_countries_and_cities()
@@ -332,8 +396,8 @@ def show_app():
     # ── COUNTRY LIST — user country first ───
     if st.session_state.detected_country is None:
         st.session_state.detected_country = detect_user_country(sorted(list(cities_dict.keys())))
-    user_country  = st.session_state.detected_country
-    country_list  = build_country_list(cities_dict, user_country)
+    user_country    = st.session_state.detected_country
+    country_list    = build_country_list(cities_dict, user_country)
     country_options = ["All Countries"] + country_list
 
     # ── SIDEBAR ─────────────────────────────
@@ -352,7 +416,7 @@ def show_app():
         industry_options = ["All Industries"] + industries if industries else ["All Industries"]
         industry = st.selectbox("Industry", industry_options, key="industry")
 
-        # 3. SUB-INDUSTRY / VERTICAL
+        # 3. VERTICAL
         vertical_options = ["All Verticals"] + verticals if verticals else ["All Verticals"]
         vertical = st.selectbox("Vertical", vertical_options, key="vertical")
 
@@ -413,7 +477,21 @@ def show_app():
         industry_filter = f" in the {industry} industry" if industry != "All Industries" else ""
         vertical_filter = f" focused on {vertical}" if vertical != "All Verticals" else ""
 
-        # Build search queries based on scope
+        # Get tenant name for own-company exclusion in prompt
+        tenant_name = ""
+        try:
+            supabase = get_supabase_client()
+            tenant = supabase.table("tenants")\
+                .select("name, own_domains")\
+                .eq("id", profile.get("tenant_id"))\
+                .single()\
+                .execute()
+            if tenant.data:
+                tenant_name = tenant.data.get("name", "")
+        except:
+            pass
+
+        # Build search queries
         with st.spinner(f"Searching for {scope.lower()} in {location_display}..."):
             if scope == "Partners":
                 queries = [
@@ -443,27 +521,31 @@ def show_app():
                     f"directory companies {location_for_search}{vertical_filter}"
                 ]
 
-            # CHANGE 2: Collect both snippets AND url_map from all searches
-            all_results = ""
-            combined_url_map = {}  # Merged URL map from all 6 searches
+            all_results      = ""
+            combined_url_map = {}
 
             for query in queries:
                 snippets, url_map = search_web(query, serper_key)
                 all_results += f"\nSearch: {query}\nResults:\n{snippets}\n"
-                combined_url_map.update(url_map)  # Merge — later URLs overwrite earlier ones
+                combined_url_map.update(url_map)
 
         # AI ANALYSIS
         with st.spinner("Analyzing results..."):
             limit_instruction = f"up to {num_leads}" if num_leads < 9999 else "all"
 
-            # CHANGE 1: Fit Score removed from prompt
-            # CHANGE 2: Website instruction now says use URL from search results — not guess
             prompt = (
-                f"You are a strict business development researcher for Purpleguard, a cybersecurity company. "
+                f"You are a strict business development researcher. "
                 f"We are looking for {scope.lower()} located in {location_for_search}. "
                 f"Do NOT include companies from other locations. "
                 f"If there are not enough companies found, return only what is available.\n"
             )
+
+            # Exclude own company
+            if tenant_name:
+                prompt += (
+                    f"IMPORTANT: Do NOT include '{tenant_name}' or any of its brands "
+                    f"in the results — this is our own company.\n"
+                )
 
             if scope == "Partners":
                 prompt += (
@@ -507,22 +589,22 @@ def show_app():
             st.warning(f"No {scope.lower()} found in {location_display}. Try broadening your search criteria.")
         else:
             # BUILD DATAFRAME
-            # CHANGE 1: Fit Score column removed
             df = pd.DataFrame(suspects, columns=[
                 "Company Name", "City",
                 "Client Base", "Known Vendors", "Experience", "Website"
             ])
 
-            # CHANGE 2: Override Website with Serper URL map where possible
-            # If Claude returned a URL we also have in our map — use the Serper one (more reliable)
-            # If Claude returned a URL not in map — keep Claude's (it came from search results anyway)
-            # If Claude returned empty — try to find it in url_map by company name match
+            # RESOLVE WEBSITE — prefer Serper URL, reject directory URLs
             def resolve_website(row):
                 claude_url = row.get("Website", "")
+                if claude_url and is_directory_url(claude_url):
+                    claude_url = ""
                 domain = extract_domain(claude_url)
                 if domain and domain in combined_url_map:
-                    return combined_url_map[domain]  # Prefer Serper URL
-                return claude_url  # Fall back to what Claude found in search results
+                    candidate = combined_url_map[domain]
+                    if not is_directory_url(candidate):
+                        return candidate
+                return claude_url
 
             df["Website"] = df.apply(resolve_website, axis=1)
 
@@ -542,62 +624,4 @@ def show_app():
                 height=600,
                 hide_index=True,
                 column_config={
-                    "Website": st.column_config.LinkColumn(
-                        "Website",
-                        display_text="🔗 Visit"
-                    ),
-                    "#": st.column_config.NumberColumn("#", width="small"),
-                    "Client Base": st.column_config.TextColumn("Client Base", width="small"),
-                }
-            )
-
-            # CHANGE 3: Save to suspects table with deduplication
-            with st.spinner("Saving to database..."):
-                saved, skipped, skipped_names = save_to_suspects(
-                    df,
-                    country if country != "All Countries" else location_display,
-                    scope,
-                    st.session_state.user_profile
-                )
-
-            # Show save summary
-            if saved > 0 and skipped == 0:
-                st.info(f"💾 {saved} new suspects saved to database.")
-            elif saved > 0 and skipped > 0:
-                st.info(f"💾 {saved} new suspects saved. {skipped} already existed and were skipped.")
-            elif saved == 0 and skipped > 0:
-                st.warning(f"⚠️ All {skipped} results already exist in the database. No new suspects added.")
-
-            # EXCEL EXPORT
-            export_df = df.copy()
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = scope
-            headers = list(export_df.columns)
-            for col, header in enumerate(headers, 1):
-                ws.cell(row=1, column=col, value=header)
-            today = datetime.now().strftime("%Y-%m-%d")
-            for row_idx, row_data in enumerate(export_df.values.tolist(), 2):
-                for col_idx, value in enumerate(row_data, 1):
-                    ws.cell(row=row_idx, column=col_idx, value=str(value))
-
-            safe_location = location_display.replace(", ", "_").replace(" ", "_")
-            filename = f"SGR_{scope}_{safe_location}_{today}.xlsx"
-            wb.save(filename)
-
-            with open(filename, "rb") as f:
-                st.download_button(
-                    "📥 Download Excel", f, filename,
-                    use_container_width=True
-                )
-
-    else:
-        st.info("👈 Set your search criteria in the sidebar and click Search")
-
-# ─────────────────────────────────────────────
-# ROUTER
-# ─────────────────────────────────────────────
-if st.session_state.user is None:
-    show_login()
-else:
-    show_app()
+                    "Websit
