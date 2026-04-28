@@ -281,16 +281,17 @@ def save_to_suspects(df, country, scope, user_profile):
             record = {
                 "company_name": row.get("Company Name", ""),
                 "city":         row.get("City", ""),
-                "country":      country,
+                 "country":      country,
                 "website":      website,
                 "client_base":  row.get("Client Base", ""),
                 "experience":   row.get("Experience", ""),
                 "mission":      scope,
+                "status":       "new",
+                "is_active":    True,
                 "tenant_id":    user_profile.get("tenant_id"),
                 "user_id":      user_profile.get("id"),
                 "created_at":   datetime.utcnow().isoformat()
             }
-
             supabase.table("suspects").insert(record).execute()
             saved_count += 1
 
