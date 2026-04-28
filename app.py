@@ -24,6 +24,8 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "user_profile" not in st.session_state:
     st.session_state.user_profile = None
+if "detected_country" not in st.session_state:
+    st.session_state.detected_country = None  # Detected once, never again
 
 # ─────────────────────────────────────────────
 # LOGIN SCREEN
@@ -237,11 +239,18 @@ def show_app():
         return
 
     # ── COUNTRY LIST — user country first ───
-    user_country  = detect_user_country(sorted(list(cities_dict.keys())))
+    # Detect country only ONCE per session — stored in session_state
+    # Without this fix, every field interaction rerenders the page,
+    # IP detection fires again and resets the country back to USA
+    if st.session_state.detected_country is None:
+        st.session_state.detected_country = detect_user_country(sorted(list(cities_dict.keys())))
+    user_country  = st.session_state.detected_country
     country_list  = build_country_list(cities_dict, user_country)
     country_options = ["All Countries"] + country_list
 
     # ── SIDEBAR ─────────────────────────────
+    # All widgets use key= so Streamlit saves their value in session_state
+    # Without key=, every widget interaction rerenders the page and resets all fields
     with st.sidebar:
         st.header("🎯 Search Criteria")
 
@@ -249,39 +258,45 @@ def show_app():
         scope = st.selectbox(
             "What are you looking for?",
             ["Partners", "Clients", "Mailing List"],
-            index=0
+            index=0,
+            key="scope"
         )
 
         st.divider()
 
         # 2. INDUSTRY
         industry_options = ["All Industries"] + industries if industries else ["All Industries"]
-        industry = st.selectbox("Industry", industry_options)
+        industry = st.selectbox("Industry", industry_options, key="industry")
 
         # 3. SUB-INDUSTRY / VERTICAL
         vertical_options = ["All Verticals"] + verticals if verticals else ["All Verticals"]
-        vertical = st.selectbox("Sub-Industry / Vertical", vertical_options)
+        vertical = st.selectbox("Sub-Industry / Vertical", vertical_options, key="vertical")
 
         st.divider()
 
-        # 4. COUNTRY — user country is first in list
-        default_country_index = country_options.index(user_country) if user_country in country_options else 1
-        country = st.selectbox("Target Country", country_options, index=default_country_index)
+        # 4. COUNTRY — user country is first in list, only set default on first load
+        if "country" not in st.session_state:
+            default_country_index = country_options.index(user_country) if user_country in country_options else 1
+            st.session_state["country"] = country_options[default_country_index]
+        country = st.selectbox("Target Country", country_options, key="country")
 
-        # 5. CITY — alphabetical, "All" option at top
+        # 5. CITY — rebuild list when country changes, reset city if country changed
         if country == "All Countries":
             city = "All Countries"
             st.caption("Results will be sorted by country, then by city.")
         else:
             city_options = ["All " + country] + cities_dict.get(country, [])
-            city = st.selectbox("Target City", city_options)
+            # Reset city if it no longer belongs to selected country
+            if "city" in st.session_state and st.session_state["city"] not in city_options:
+                st.session_state["city"] = city_options[0]
+            city = st.selectbox("Target City", city_options, key="city")
 
         st.divider()
 
         # 6. ROW LIMIT — no limit by default
-        limit_on = st.checkbox("Limit number of results", value=False)
+        limit_on = st.checkbox("Limit number of results", value=False, key="limit_on")
         if limit_on:
-            num_leads = st.number_input("Maximum results", min_value=1, value=10, step=5)
+            num_leads = st.number_input("Maximum results", min_value=1, value=10, step=5, key="num_leads")
         else:
             num_leads = 9999  # No limit — return everything found
 
@@ -415,21 +430,23 @@ def show_app():
             # ADD SERIAL NUMBER
             df.insert(0, "#", range(1, len(df) + 1))
 
-            # MAKE WEBSITE CLICKABLE
-            def make_link(url):
-                if url and str(url).startswith("http"):
-                    return f'<a href="{url}" target="_blank">🔗 Visit</a>'
-                return url
-
-            display_df = df.copy()
-            display_df["Website"] = display_df["Website"].apply(make_link)
-
             st.success(f"✅ Found {len(df)} {scope.lower()} in {location_display}")
 
-            # DISPLAY TABLE WITH CLICKABLE LINKS
-            st.write(
-                display_df.to_html(escape=False, index=False),
-                unsafe_allow_html=True
+            # DISPLAY TABLE — sortable columns + clickable website link
+            st.dataframe(
+                df,
+                use_container_width=True,
+                height=600,
+                hide_index=True,
+                column_config={
+                    "Website": st.column_config.LinkColumn(
+                        "Website",
+                        display_text="🔗 Visit"
+                    ),
+                    "#": st.column_config.NumberColumn("#", width="small"),
+                    "Fit Score": st.column_config.TextColumn("Fit Score", width="small"),
+                    "Client Base": st.column_config.TextColumn("Client Base", width="small"),
+                }
             )
 
             # EXCEL EXPORT — clean version without HTML tags
